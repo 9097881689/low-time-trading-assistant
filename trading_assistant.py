@@ -310,22 +310,45 @@ def format_alert(signal: dict) -> str:
 
 def format_top_alerts(signals: list[dict], scanned_count: int, top_n: int) -> str:
     ranked = rank_buy_signals(signals)[:top_n]
+    generated_at = dt.datetime.now().strftime("%d %b %Y, %I:%M %p")
+    buy_count = len([s for s in signals if s["signal"] == "BUY_WATCH"])
     lines = [
-        f"Trading Assistant: Top {len(ranked)} BUY_WATCH",
-        f"Scanned: {scanned_count} | Buy setups: {len([s for s in signals if s['signal'] == 'BUY_WATCH'])}",
-        "Manual approval required. No auto order placed.",
+        "TRADING ASSISTANT REPORT",
+        f"Generated: {generated_at}",
+        "",
+        "Summary",
+        f"Scanned stocks: {scanned_count}",
+        f"Buy-watch setups found: {buy_count}",
+        f"Shortlisted for review: Top {len(ranked)}",
+        "",
+        "Important",
+        "This is an alert-only shortlist. No order has been placed. Please review price, volume, news, and risk before taking any trade.",
         "",
     ]
     for index, signal in enumerate(ranked, start=1):
         lines.extend(
             [
-                f"{index}. {signal['symbol']} | Score {signal['score']} | Price {signal['price']}",
-                f"Qty {signal['qty']} | SL {signal['stop_loss']} | Target {signal['target']}",
-                f"Est profit {signal['estimated_profit']} | Max loss {signal['max_loss']} | R:R {signal['risk_reward']}",
-                f"Why: SMA strength {signal['trend_strength_percent']}%, RSI {signal['rsi']}, recent {signal['recent_change_percent']}%",
+                f"#{index} {signal['symbol']}",
+                f"Signal: BUY WATCH | Score: {signal['score']}",
+                f"Current price: {signal['price']}",
+                f"Suggested quantity: {signal['qty']}",
+                f"Stop-loss: {signal['stop_loss']} | Target: {signal['target']}",
+                f"Risk: max loss {signal['max_loss']} | Est. profit {signal['estimated_profit']} | R:R {signal['risk_reward']}",
+                "Reason:",
+                (
+                    f"9 SMA is above 21 SMA by {signal['trend_strength_percent']}%. "
+                    f"RSI is {signal['rsi']}, which is in the controlled momentum zone. "
+                    f"Recent momentum is {signal['recent_change_percent']}%."
+                ),
                 "",
             ]
         )
+    lines.extend(
+        [
+            "Risk Rule",
+            "Keep stop-loss mandatory. Avoid leverage/F&O. If 2-3 trades hit stop-loss in a day, stop trading for the day.",
+        ]
+    )
     return "\n".join(lines).strip()
 
 
