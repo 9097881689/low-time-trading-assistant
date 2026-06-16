@@ -1,0 +1,19 @@
+{
+  "capital": 10000,
+  "risk_per_trade": 100,
+  "daily_max_loss": 200,
+  "symbols": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "NIFTYBEES.NS"],
+  "interval": "15m",
+  "range": "5d",
+  "short_sma": 9,
+  "long_sma": 21,
+  "rsi_period": 14,
+  "rsi_buy_min": 45,
+  "rsi_buy_max": 68,
+  "rsi_sell_max": 40,
+  "stop_loss_percent": 1.0,
+  "target_percent": 1.5,
+  "paper_trade": true,
+  "telegram_bot_token": "",
+  "telegram_chat_id": ""
+}
