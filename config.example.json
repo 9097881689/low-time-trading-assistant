@@ -14,6 +14,10 @@
     "SUNPHARMA.NS", "TCS.NS", "TATACONSUM.NS", "TMPV.NS", "TATASTEEL.NS",
     "TECHM.NS", "TITAN.NS", "TRENT.NS", "ULTRACEMCO.NS", "WIPRO.NS"
   ],
+  "use_nse_equity_list": true,
+  "nse_equity_url": "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+  "max_symbols": 1000,
+  "max_workers": 20,
   "interval": "15m",
   "range": "5d",
   "short_sma": 9,
