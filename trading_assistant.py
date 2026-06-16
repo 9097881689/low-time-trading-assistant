@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
     "nse_equity_url": "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
     "max_symbols": 1000,
     "max_workers": 20,
+    "top_alerts": 10,
     "interval": "15m",
     "range": "5d",
     "short_sma": 9,
@@ -194,6 +195,9 @@ def decide_signal(symbol: str, candles: list[dict], config: dict) -> dict:
     short = sma(closes, int(config["short_sma"]))
     long = sma(closes, int(config["long_sma"]))
     rsi_value = rsi(closes, int(config["rsi_period"]))
+    recent_price = closes[-5] if len(closes) >= 5 else closes[0]
+    recent_change_percent = percent_change(price, recent_price)
+    trend_strength_percent = percent_change(short, long)
 
     signal = "WAIT"
     reason = "No clean setup"
@@ -207,9 +211,14 @@ def decide_signal(symbol: str, candles: list[dict], config: dict) -> dict:
     stop_loss = price * (1 - float(config["stop_loss_percent"]) / 100)
     target = price * (1 + float(config["target_percent"]) / 100)
     risk_per_share = max(price - stop_loss, 0.01)
+    reward_per_share = max(target - price, 0.0)
     risk_qty = math.floor(float(config["risk_per_trade"]) / risk_per_share)
     capital_qty = math.floor(float(config["capital"]) / price)
     qty = max(0, min(risk_qty, capital_qty))
+    estimated_profit = qty * reward_per_share
+    risk_reward = reward_per_share / risk_per_share
+    score = rank_score(signal, trend_strength_percent, recent_change_percent, rsi_value, estimated_profit)
+    action_reason = build_action_reason(signal, trend_strength_percent, recent_change_percent, rsi_value)
 
     return {
         "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
@@ -223,8 +232,58 @@ def decide_signal(symbol: str, candles: list[dict], config: dict) -> dict:
         "stop_loss": round(stop_loss, 2),
         "target": round(target, 2),
         "max_loss": round(qty * risk_per_share, 2),
+        "estimated_profit": round(estimated_profit, 2),
+        "risk_reward": round(risk_reward, 2),
+        "trend_strength_percent": round(trend_strength_percent, 2),
+        "recent_change_percent": round(recent_change_percent, 2),
+        "score": round(score, 2),
         "reason": reason,
+        "action_reason": action_reason,
     }
+
+
+def percent_change(current: float, previous: float) -> float:
+    if previous == 0 or math.isnan(previous) or math.isnan(current):
+        return 0.0
+    return ((current - previous) / previous) * 100
+
+
+def rank_score(
+    signal: str,
+    trend_strength_percent: float,
+    recent_change_percent: float,
+    rsi_value: float,
+    estimated_profit: float,
+) -> float:
+    if signal != "BUY_WATCH":
+        return 0.0
+    rsi_quality = max(0.0, 25.0 - abs(rsi_value - 56.0))
+    trend_score = max(0.0, trend_strength_percent) * 30
+    momentum_score = max(0.0, recent_change_percent) * 8
+    profit_score = min(30.0, estimated_profit / 5)
+    return rsi_quality + trend_score + momentum_score + profit_score
+
+
+def build_action_reason(
+    signal: str,
+    trend_strength_percent: float,
+    recent_change_percent: float,
+    rsi_value: float,
+) -> str:
+    if signal == "BUY_WATCH":
+        return (
+            f"Buy-watch because 9 SMA is above 21 SMA by {trend_strength_percent:.2f}%, "
+            f"RSI {rsi_value:.1f} is controlled, and recent momentum is {recent_change_percent:.2f}%."
+        )
+    if signal == "AVOID_OR_EXIT":
+        return (
+            f"Avoid/exit because trend is weak or RSI {rsi_value:.1f} is bearish; "
+            f"recent momentum is {recent_change_percent:.2f}%."
+        )
+    return (
+        f"Wait because trend/momentum is not clean enough; RSI {rsi_value:.1f}, "
+        f"recent momentum {recent_change_percent:.2f}%."
+    )
 
 
 def append_signal(path: Path, signal: dict) -> None:
@@ -242,9 +301,44 @@ def format_alert(signal: dict) -> str:
         f"{signal['symbol']} | {signal['signal']}\n"
         f"Price: {signal['price']} | Qty: {signal['qty']}\n"
         f"SL: {signal['stop_loss']} | Target: {signal['target']} | Max loss: {signal['max_loss']}\n"
+        f"Est profit: {signal['estimated_profit']} | Score: {signal['score']}\n"
         f"RSI: {signal['rsi']} | SMA: {signal['short_sma']}/{signal['long_sma']}\n"
-        f"Note: {signal['reason']}\n"
+        f"Why: {signal['action_reason']}\n"
         "Manual approval required. This script does not place orders."
+    )
+
+
+def format_top_alerts(signals: list[dict], scanned_count: int, top_n: int) -> str:
+    ranked = rank_buy_signals(signals)[:top_n]
+    lines = [
+        f"Trading Assistant: Top {len(ranked)} BUY_WATCH",
+        f"Scanned: {scanned_count} | Buy setups: {len([s for s in signals if s['signal'] == 'BUY_WATCH'])}",
+        "Manual approval required. No auto order placed.",
+        "",
+    ]
+    for index, signal in enumerate(ranked, start=1):
+        lines.extend(
+            [
+                f"{index}. {signal['symbol']} | Score {signal['score']} | Price {signal['price']}",
+                f"Qty {signal['qty']} | SL {signal['stop_loss']} | Target {signal['target']}",
+                f"Est profit {signal['estimated_profit']} | Max loss {signal['max_loss']} | R:R {signal['risk_reward']}",
+                f"Why: SMA strength {signal['trend_strength_percent']}%, RSI {signal['rsi']}, recent {signal['recent_change_percent']}%",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def rank_buy_signals(signals: list[dict]) -> list[dict]:
+    buy_signals = [signal for signal in signals if signal["signal"] == "BUY_WATCH"]
+    return sorted(
+        buy_signals,
+        key=lambda signal: (
+            float(signal.get("score", 0)),
+            float(signal.get("estimated_profit", 0)),
+            float(signal.get("trend_strength_percent", 0)),
+        ),
+        reverse=True,
     )
 
 
@@ -254,11 +348,31 @@ def send_telegram(config: dict, message: str) -> None:
     if not token or not chat_id:
         return
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    body = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
-    request = urllib.request.Request(url, data=body, method="POST")
-    with urllib.request.urlopen(request, timeout=20) as response:
-        response.read()
+    for chunk in split_message(message):
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        body = urllib.parse.urlencode({"chat_id": chat_id, "text": chunk}).encode("utf-8")
+        request = urllib.request.Request(url, data=body, method="POST")
+        with urllib.request.urlopen(request, timeout=20) as response:
+            response.read()
+
+
+def split_message(message: str, limit: int = 3900) -> list[str]:
+    if len(message) <= limit:
+        return [message]
+    chunks = []
+    current = []
+    current_len = 0
+    for line in message.splitlines():
+        line_len = len(line) + 1
+        if current and current_len + line_len > limit:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def scan_symbol(symbol: str, config: dict) -> tuple[dict | None, str | None]:
@@ -270,9 +384,10 @@ def scan_symbol(symbol: str, config: dict) -> tuple[dict | None, str | None]:
 
 
 def run_once(config: dict, log_path: Path) -> int:
-    actionable = 0
+    signals = []
     symbols = resolve_symbols(config)
     max_workers = max(1, int(config.get("max_workers", 1)))
+    top_alerts = max(1, int(config.get("top_alerts", 10)))
     print(f"Scanning {len(symbols)} symbols with {max_workers} workers")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -285,12 +400,14 @@ def run_once(config: dict, log_path: Path) -> int:
             if not signal:
                 continue
             append_signal(log_path, signal)
-            message = format_alert(signal)
-            if signal["signal"] == "BUY_WATCH":
-                actionable += 1
-                print("=" * 72)
-                print(message)
-                send_telegram(config, message)
+            signals.append(signal)
+    ranked = rank_buy_signals(signals)
+    if ranked:
+        top_message = format_top_alerts(signals, len(symbols), top_alerts)
+        print("=" * 72)
+        print(top_message)
+        send_telegram(config, top_message)
+    actionable = len(ranked)
     print(f"BUY_WATCH signals: {actionable}")
     return actionable
 
