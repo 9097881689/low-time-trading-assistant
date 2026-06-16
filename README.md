@@ -7,6 +7,7 @@ Ye kya karega:
 - Yahoo Finance se market data read karega.
 - SMA + RSI ke basis par signal banayega.
 - NSE ki official equity list se maximum practical stocks scan karega.
+- Telegram par sirf top 10 ranked BUY_WATCH stocks bhejega.
 - Quantity, stop-loss, target aur max loss calculate karega.
 - Paper trading CSV log banayega.
 - Telegram alert bhej sakta hai.
@@ -76,6 +77,9 @@ Default rules:
 - `BUY_WATCH`: Setup interesting hai. App kholkar manually check karo.
 - `WAIT`: Clear trade nahi hai.
 - `AVOID_OR_EXIT`: Trend weak hai, entry avoid karo.
+
+Top 10 ranking me SMA strength, RSI quality, recent momentum, estimated profit
+aur risk control use hota hai. Ye profit guarantee nahi hai.
 
 ## Important
 
