@@ -6,7 +6,7 @@ Ye kya karega:
 
 - Yahoo Finance se market data read karega.
 - SMA + RSI ke basis par signal banayega.
-- Default large-cap NSE watchlist ko scan karega.
+- NSE ki official equity list se maximum practical stocks scan karega.
 - Quantity, stop-loss, target aur max loss calculate karega.
 - Paper trading CSV log banayega.
 - Telegram alert bhej sakta hai.
