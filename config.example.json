@@ -18,6 +18,7 @@
   "nse_equity_url": "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
   "max_symbols": 1000,
   "max_workers": 20,
+  "top_alerts": 10,
   "interval": "15m",
   "range": "5d",
   "short_sma": 9,
