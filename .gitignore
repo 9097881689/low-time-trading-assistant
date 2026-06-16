@@ -1,0 +1,5 @@
+config.json
+paper_trades.csv
+*.log
+__pycache__/
+*.pyc
