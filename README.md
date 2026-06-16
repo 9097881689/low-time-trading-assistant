@@ -38,6 +38,13 @@ sh run.sh
 sh run.sh --loop --sleep 900
 ```
 
+## Laptop Off Hone Par
+
+GitHub Actions workflow included hai: `.github/workflows/trading-alerts.yml`.
+Repo me `TELEGRAM_BOT_TOKEN` aur `TELEGRAM_CHAT_ID` secrets set karne ke baad
+ye cloud par har 15 minute scan karega. Laptop off/sleep hone par bhi alerts
+aa sakte hain, kyunki workflow GitHub ke server par run hota hai.
+
 ## Telegram Alert Setup
 
 Telegram optional hai. Agar alert phone par chahiye:
