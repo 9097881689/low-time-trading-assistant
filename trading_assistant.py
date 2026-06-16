@@ -10,8 +10,10 @@ paper-trading signals so the final decision stays manual.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import datetime as dt
+import io
 import json
 import math
 import os
@@ -27,6 +29,10 @@ DEFAULT_CONFIG = {
     "risk_per_trade": 100,
     "daily_max_loss": 200,
     "symbols": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "NIFTYBEES.NS"],
+    "use_nse_equity_list": True,
+    "nse_equity_url": "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+    "max_symbols": 1000,
+    "max_workers": 20,
     "interval": "15m",
     "range": "5d",
     "short_sma": 9,
@@ -51,6 +57,56 @@ def load_config(path: Path) -> dict:
     config = dict(DEFAULT_CONFIG)
     config.update(user_config)
     return config
+
+
+def resolve_symbols(config: dict) -> list[str]:
+    symbols = []
+    if config.get("use_nse_equity_list", False):
+        try:
+            symbols.extend(fetch_nse_equity_symbols(config))
+        except Exception as exc:
+            print(f"NSE list fetch failed, using config symbols: {exc}", file=sys.stderr)
+
+    if not symbols:
+        symbols.extend(config.get("symbols", []))
+
+    seen = set()
+    clean_symbols = []
+    for symbol in symbols:
+        symbol = str(symbol).strip().upper()
+        if not symbol:
+            continue
+        if not symbol.endswith(".NS"):
+            symbol = f"{symbol}.NS"
+        if symbol not in seen:
+            clean_symbols.append(symbol)
+            seen.add(symbol)
+    max_symbols = int(config.get("max_symbols") or len(clean_symbols))
+    return clean_symbols[:max_symbols]
+
+
+def fetch_nse_equity_symbols(config: dict) -> list[str]:
+    url = config.get("nse_equity_url") or DEFAULT_CONFIG["nse_equity_url"]
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 trading-assistant alerts-only",
+            "Accept": "text/csv,*/*",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        csv_text = response.read().decode("utf-8", errors="replace")
+
+    symbols = []
+    reader = csv.DictReader(io.StringIO(csv_text))
+    for row in reader:
+        series = (row.get(" SERIES") or row.get("SERIES") or "").strip().upper()
+        symbol = (row.get("SYMBOL") or "").strip().upper()
+        if series == "EQ" and symbol:
+            symbols.append(f"{symbol}.NS")
+    if not symbols:
+        raise RuntimeError("No EQ symbols found in NSE list")
+    return symbols
 
 
 def fetch_yahoo_chart(symbol: str, interval: str, data_range: str) -> list[dict]:
@@ -205,21 +261,37 @@ def send_telegram(config: dict, message: str) -> None:
         response.read()
 
 
+def scan_symbol(symbol: str, config: dict) -> tuple[dict | None, str | None]:
+    try:
+        candles = fetch_yahoo_chart(symbol, config["interval"], config["range"])
+        return decide_signal(symbol, candles, config), None
+    except Exception as exc:
+        return None, f"{symbol}: error: {exc}"
+
+
 def run_once(config: dict, log_path: Path) -> int:
     actionable = 0
-    for symbol in config["symbols"]:
-        try:
-            candles = fetch_yahoo_chart(symbol, config["interval"], config["range"])
-            signal = decide_signal(symbol, candles, config)
+    symbols = resolve_symbols(config)
+    max_workers = max(1, int(config.get("max_workers", 1)))
+    print(f"Scanning {len(symbols)} symbols with {max_workers} workers")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scan_symbol, symbol, config): symbol for symbol in symbols}
+        for future in concurrent.futures.as_completed(futures):
+            signal, error = future.result()
+            if error:
+                print(error, file=sys.stderr)
+                continue
+            if not signal:
+                continue
             append_signal(log_path, signal)
             message = format_alert(signal)
-            print("=" * 72)
-            print(message)
             if signal["signal"] == "BUY_WATCH":
                 actionable += 1
+                print("=" * 72)
+                print(message)
                 send_telegram(config, message)
-        except Exception as exc:
-            print(f"{symbol}: error: {exc}", file=sys.stderr)
+    print(f"BUY_WATCH signals: {actionable}")
     return actionable
 
 
